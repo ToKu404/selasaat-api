@@ -1,0 +1,20 @@
+# Folder Virtual Environment Python
+# Ini WAJIB diabaikan karena isinya spesifik untuk setiap komputer
+venv/
+.venv/
+
+# Folder cache Python
+__pycache__/
+*.pyc
+
+# File environment (jika nanti Anda pakai)
+.env
+.env.*
+
+# File-file yang dihasilkan oleh sistem operasi
+.DS_Store
+Thumbs.db
+
+# File-file yang dihasilkan oleh IDE/Code Editor
+.vscode/
+.idea/

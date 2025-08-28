@@ -1,0 +1,323 @@
+/* FONTS: ARVO (Country/Slab Serif) & INTER (Neo-Brutalism/Sans-Serif) */
+@import url("https://fonts.googleapis.com/css2?family=Arvo:wght@700&family=Inter:wght@400;700&display=swap");
+
+:root {
+  /* === Palet Warna === */
+  --black: #1e1e1e;
+  --yellow: #fde047;
+  --teal: #14b8a6;
+  --paper: #fefdf4; /* Latar belakang kertas - Sentuhan Country */
+
+  /* === Tipografi === */
+  --font-heading: "Arvo", serif;
+  --font-body: "Inter", sans-serif;
+
+  /* === Aturan Desain Neo-Brutalism === */
+  --border-width: 3px;
+  --border-radius: 0;
+  --shadow-distance: 8px;
+  --hard-shadow: var(--shadow-distance) var(--shadow-distance) 0px var(--black);
+  --hard-shadow-sm: 4px 4px 0px var(--black);
+}
+
+/* Reset dan Pengaturan Dasar */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--paper); /* Latar kertas untuk nuansa Country */
+  color: var(--black);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  font-size: 16px;
+  padding: 15px; /* Memberi "frame" pada halaman */
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 15px;
+}
+
+a {
+  color: var(--black);
+  font-weight: 700;
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+a:hover {
+  color: var(--teal);
+}
+
+/* Header */
+.main-header {
+  background: var(--paper);
+  border: var(--border-width) solid var(--black);
+  padding: 15px;
+  margin-bottom: 30px;
+}
+
+.main-header .container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.logo {
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  color: var(--black);
+}
+
+.main-nav a {
+  font-weight: 700;
+  margin-left: 25px;
+  text-decoration: none;
+}
+
+/* Section Umum */
+.section {
+  padding: 50px 0;
+}
+.section-title {
+  font-family: var(--font-heading);
+  font-size: 1.2rem;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  display: inline-block;
+  padding: 8px 15px;
+  border: var(--border-width) solid var(--black);
+  background: var(--yellow);
+}
+
+/* === CARD: Elemen Inti Neo-Brutalism === */
+.card {
+  background: white;
+  border: var(--border-width) solid var(--black);
+  box-shadow: var(--hard-shadow);
+  padding: 30px;
+  transition: box-shadow 0.2s ease-out, transform 0.2s ease-out;
+}
+.card--yellow {
+  background: var(--yellow);
+}
+.card--teal {
+  background: var(--teal);
+  color: var(--paper);
+}
+.card--teal strong,
+.card--teal a {
+  color: var(--paper);
+}
+
+/* Tombol (Button) */
+.btn {
+  display: inline-block;
+  background: var(--yellow);
+  color: var(--black);
+  font-family: var(--font-body);
+  font-weight: 700;
+  padding: 15px 30px;
+  border: var(--border-width) solid var(--black);
+  box-shadow: var(--hard-shadow-sm);
+  text-decoration: none;
+  transition: all 0.15s ease-out;
+}
+.btn:hover {
+  transform: translate(var(--shadow-distance), var(--shadow-distance));
+  box-shadow: none;
+  background: var(--teal);
+  color: var(--paper);
+}
+.btn--dark {
+  background: var(--black);
+  color: var(--paper);
+}
+.btn--dark:hover {
+  background: var(--teal);
+  color: var(--paper);
+}
+
+/* Layout Spesifik per Section */
+.hero {
+  text-align: center;
+}
+.hero-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+.hero h1 {
+  font-family: var(--font-heading);
+  font-size: 4rem;
+  line-height: 1.1;
+  margin-bottom: 20px;
+}
+
+.feature-grid,
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 30px;
+}
+.feature-grid .card h3,
+.contact-grid .card h3 {
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  margin-bottom: 10px;
+}
+
+#partnership .card {
+  max-width: 800px;
+  margin: 0 auto;
+}
+#partnership h3 {
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  margin-bottom: 15px;
+}
+#partnership ul {
+  list-style: none;
+  margin: 20px 0 30px 0;
+}
+#partnership li {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+/* Footer */
+.main-footer {
+  text-align: center;
+  padding: 50px 0 20px 0;
+  font-weight: 700;
+}
+
+/* === Penyesuaian Spasi & Kerapian === */
+.section {
+  /* Jarak vertikal antar section ditambah agar lebih lega */
+  padding: 70px 0;
+}
+
+/* Menghapus section Layanan agar tidak terlalu ramai */
+#services {
+  display: none;
+}
+
+/* === Section Booth Kami (BARU) === */
+.booth-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  align-items: center;
+}
+
+.booth-image.card {
+  padding: 15px; /* Padding lebih kecil agar gambar lebih dominan */
+}
+
+.booth-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* Memastikan gambar mengisi area tanpa distorsi */
+  display: block;
+}
+
+.booth-details .card h3 {
+  font-family: var(--font-heading);
+  font-size: 1.8rem;
+  margin-bottom: 20px;
+}
+
+.booth-details .card ul {
+  list-style: none;
+  margin-top: 20px;
+}
+
+.booth-details .card li {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.booth-details .card li::before {
+  content: "→"; /* Panah sebagai bullet point */
+  margin-right: 10px;
+  color: var(--teal);
+}
+
+/* === Section Galeri (BARU) === */
+.gallery-grid {
+  display: grid;
+  /* Grid responsif yang cerdas */
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 30px;
+}
+
+.gallery-item.card {
+  padding: 10px;
+  overflow: hidden; /* Agar gambar tidak keluar dari border saat hover */
+}
+
+.gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease-out;
+}
+
+.gallery-item:hover {
+  /* Efek hover yang halus */
+  transform: translate(4px, 4px) !important; /* Paksa prioritas */
+  box-shadow: var(--hard-shadow-sm) !important;
+}
+
+.gallery-item:hover img {
+  transform: scale(1.05); /* Sedikit zoom pada gambar saat hover */
+}
+
+/* --- Responsivitas --- */
+@media (max-width: 768px) {
+  body {
+    padding: 10px;
+    font-size: 15px;
+  }
+
+  .main-header .container {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .hero h1 {
+    font-size: 3rem;
+  }
+
+  .feature-grid,
+  .contact-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-nav {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .main-nav a {
+    margin-left: 0;
+  }
+
+  .hero h1 {
+    font-size: 2.5rem;
+  }
+  .btn {
+    padding: 12px 25px;
+  }
+}
