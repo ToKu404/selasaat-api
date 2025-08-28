@@ -1,0 +1,108 @@
+# api/tripay.py
+import os  # <-- FIX 1: Ditambahkan kembali
+import httpx
+import hmac
+import hashlib
+from fastapi import APIRouter, Request, HTTPException
+from pydantic import BaseModel
+from typing import List, Dict, Any
+from config import settings
+
+# Inisialisasi router FastAPI
+router = APIRouter()
+
+# FIX 3: Pastikan Pydantic models terdefinisi
+class CreateTransactionRequest(BaseModel):
+    method: str
+    amount: int
+    customer_name: str
+    customer_email: str
+    customer_phone: str
+    items: List[Dict[str, Any]]
+    return_url: str
+
+class CallbackPayload(BaseModel):
+    merchant_ref: str
+    reference: str
+    status: str
+    signature: str
+
+## Endpoint untuk Integrasi Tripay
+
+### Endpoint 1: Mengambil Daftar Metode Pembayaran
+@router.get("/tripay/channels")
+async def get_payment_channels():
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                settings.TRIPAY_API_URL + "merchant/payment-channel",
+                headers={"Authorization": f"Bearer {settings.TRIPAY_API_KEY}"}
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="Failed to fetch payment channels")
+
+### Endpoint 2: Membuat Transaksi Pembayaran
+@router.post("/tripay/create-transaction")
+async def create_transaction(transaction_data: CreateTransactionRequest):
+    merchant_ref = f"SELASAAT-{os.urandom(4).hex()}"
+    signature_string = f"{settings.TRIPAY_MERCHANT_CODE}{merchant_ref}{transaction_data.amount}"
+
+    signature = hmac.new(
+        settings.TRIPAY_PRIVATE_KEY.encode(),
+        signature_string.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    payload = {
+        "method": transaction_data.method,
+        "merchant_ref": merchant_ref,
+        "amount": transaction_data.amount,
+        "customer_name": transaction_data.customer_name,
+        "customer_email": transaction_data.customer_email,
+        "customer_phone": transaction_data.customer_phone,
+        "order_items": transaction_data.items,
+        "return_url": transaction_data.return_url,
+        "signature": signature
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                settings.TRIPAY_API_URL + "transaction/create",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {settings.TRIPAY_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="Failed to create transaction")
+
+### Endpoint 3: Mengatur Callback untuk Notifikasi Pembayaran
+@router.post("/tripay/callback")
+async def handle_callback(payload: CallbackPayload):
+    signature_string = f"{payload.merchant_ref}{payload.reference}{payload.status}"
+    
+    expected_signature = hmac.new(
+        settings.TRIPAY_PRIVATE_KEY.encode(), # <-- FIX 2: Diganti ke settings
+        signature_string.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    if payload.signature != expected_signature:
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    if payload.status == "PAID":
+        print(f"Transaksi {payload.merchant_ref} berhasil dibayar.")
+    elif payload.status == "EXPIRED":
+        print(f"Transaksi {payload.merchant_ref} kadaluarsa.")
+
+    return {"success": True}
