@@ -2,7 +2,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = "mysql+aiomysql://root:@localhost:3306/photobox"
+DATABASE_URL = "mysql+aiomysql://selasaat:papua123@localhost:3306/selsaat"
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
