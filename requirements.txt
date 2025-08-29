@@ -1,5 +1,19 @@
+# Framework dan Server
 fastapi
-uvicorn
-gunicorn
-python-dotenv
+uvicorn[standard]
+
+# Database dan ORM
+sqlalchemy
+aiomysql
+greenlet  # <-- Diperlukan untuk SQLAlchemy async
+
+# Upload File dan Request HTTP
+python-multipart
 httpx
+
+# Pemrosesan Gambar
+pillow
+opencv-python-headless
+
+# Konfigurasi
+python-dotenv

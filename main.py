@@ -1,44 +1,52 @@
 # main.py
-# Hapus: from dotenv import load_dotenv, load_dotenv(), os, dan semua baris TRIPAY_*
 
 import uvicorn
+import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from api.tripay import router as tripay_router
-from config import settings # <-- Impor settings dari config.py
+from fastapi.middleware.cors import CORSMiddleware
 
-# Inisialisasi aplikasi FastAPI
+# Impor router dari kedua aplikasi
+from api.tripay import router as tripay_router
+from api.photobox import photobox as photobox_router # Nama router-nya adalah 'photobox'
+
 app = FastAPI(
-    title="SELASAAT Landing Page",
-    description="Website resmi untuk aplikasi photobox SELASAAT."
+    title="SELASAAT Project (Gabungan)",
+    description="Website resmi dan API untuk aplikasi photobox SELASAAT."
 )
 
-# (Kode lainnya tetap sama)
-# ...
+# 1. Tambahkan Middleware CORS dari Aplikasi 2
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Sebaiknya ganti dengan domain frontend Anda di produksi
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# 1. 'Mounting' folder 'static'
-# Ini memberitahu FastAPI bahwa semua file di dalam folder 'static'
-# dapat diakses langsung oleh browser.
+# 2. Mount kedua direktori statis
+# Dari Aplikasi 1 (untuk landing page)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+# Dari Aplikasi 2 (untuk gambar frame yang di-upload)
+UPLOAD_FOLDER = "uploads"
+os.makedirs(os.path.join(UPLOAD_FOLDER, "frames"), exist_ok=True)
+app.mount(f"/{UPLOAD_FOLDER}", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 
-# 2. Sertakan router Tripay
-app.include_router(tripay_router, prefix="/api")
 
-# 3. Membuat endpoint untuk halaman utama ('/')
+# 3. Sertakan kedua router
+app.include_router(tripay_router, prefix="/api", tags=["Tripay Payments"])
+app.include_router(photobox_router, prefix="/api", tags=["Photobox"]) # Menggunakan prefix /api yang sama
+
+# Endpoint dari Aplikasi 1
 @app.get("/")
 async def read_root():
-    """
-    Fungsi ini akan mengirimkan file index.html sebagai respons.
-    """
     return FileResponse('static/index.html')
 
-# (Opsional) Endpoint untuk pengecekan status
 @app.get("/api/status")
 def get_status():
-    """Endpoint sederhana untuk memastikan server berjalan."""
     return {"status": "ok", "app_name": "SELASAAT"}
 
-# Perintah untuk menjalankan server saat file ini dieksekusi
+# Menjalankan server
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

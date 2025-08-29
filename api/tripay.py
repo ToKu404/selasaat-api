@@ -1,16 +1,16 @@
 # api/tripay.py
-import os  # <-- FIX 1: Ditambahkan kembali
+import os
 import httpx
 import hmac
 import hashlib
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any
-from config import settings
+from config.settings import settings # <-- Path import sudah benar
 
-# Inisialisasi router FastAPI
 router = APIRouter()
 
+# ... (sisa kode sama persis seperti yang Anda berikan)
 # FIX 3: Pastikan Pydantic models terdefinisi
 class CreateTransactionRequest(BaseModel):
     method: str
