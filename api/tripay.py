@@ -6,6 +6,7 @@ import hashlib
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any
+from datetime import datetime, timedelta
 from config.settings import settings # <-- Path import sudah benar
 
 router = APIRouter()
@@ -17,7 +18,6 @@ class CreateTransactionRequest(BaseModel):
     amount: int
     customer_name: str
     customer_email: str
-    customer_phone: str
     items: List[Dict[str, Any]]
     return_url: str
 
@@ -57,16 +57,18 @@ async def create_transaction(transaction_data: CreateTransactionRequest):
         hashlib.sha256
     ).hexdigest()
 
+    expired_time = int((datetime.utcnow() + timedelta(minutes=10)).timestamp())
+
     payload = {
         "method": transaction_data.method,
         "merchant_ref": merchant_ref,
         "amount": transaction_data.amount,
         "customer_name": transaction_data.customer_name,
         "customer_email": transaction_data.customer_email,
-        "customer_phone": transaction_data.customer_phone,
         "order_items": transaction_data.items,
         "return_url": transaction_data.return_url,
-        "signature": signature
+        "signature": signature,
+        "expired_time": expired_time
     }
 
     async with httpx.AsyncClient() as client:
