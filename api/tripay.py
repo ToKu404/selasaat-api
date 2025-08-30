@@ -7,6 +7,8 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
+from api.photobox import _save_transaction_to_db
+from config.database import get_db
 from config.settings import settings # <-- Path import sudah benar
 
 router = APIRouter()
@@ -82,7 +84,21 @@ async def create_transaction(transaction_data: CreateTransactionRequest):
                 }
             )
             response.raise_for_status()
-            return response.json()
+            tripay_response_json = response.json()
+            
+            # --- NEW: SAVE TO DATABASE ---
+            # If the transaction was successfully created on Tripay's side...
+            if tripay_response_json.get('success'):
+                # ...save it to our own database in the background.
+                await _save_transaction_to_db(
+                    db=get_db(),
+                    tripay_data=tripay_response_json.get('data', {}),
+                    order_items=transaction_data.items
+                )
+            # ---------------------------
+
+            # Return the original response from Tripay to the client
+            return tripay_response_json
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
         except Exception as e:

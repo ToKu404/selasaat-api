@@ -12,6 +12,8 @@ from sqlalchemy.future import select
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime
 import os
+from decimal import Decimal
+import logging
 
 # --- Tambahan import untuk logika prediksi ---
 import cv2
@@ -20,7 +22,7 @@ from PIL import Image
 # --------------------------------------------
 
 from config.database import get_db, Base # Impor dari lokasi baru
-from models.models import PhotoSession, Payment, Frame, Package, FramePosition
+from models.models import PhotoSession, Payment, Frame, Package, FramePosition, Transaction
 
 photobox = APIRouter()
 
@@ -357,3 +359,115 @@ async def get_all_packages(response: Response, db: AsyncSession = Depends(get_db
     except SQLAlchemyError as e:
         response.status_code = 500
         return {"status": "ERROR", "message": str(e)}
+
+
+# 
+# new_photobox_logic.py
+
+
+
+logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# DATABASE HELPER METHODS (INTERNAL)
+# ==============================================================================
+
+async def _save_transaction_to_db(
+    db: AsyncSession,
+    tripay_data: dict, # The 'data' object from the Tripay API response
+    order_items: list  # The 'items' from the original request
+):
+    """
+    Saves a new transaction and its corresponding payment record to the database.
+    This is an internal function and should not be an endpoint.
+    """
+    # Assuming the first item in the list represents the main order
+    main_item = order_items[0] if order_items else {}
+
+    try:
+        # 1. Create the Transaction record
+        new_transaction = Transaction(
+            id=str(uuid4()),
+            reference=tripay_data.get('reference'),
+            merchant_ref=tripay_data.get('merchant_ref'),
+            payment_method=tripay_data.get('payment_method'),
+            payment_name=tripay_data.get('payment_name'),
+            customer_name=tripay_data.get('customer_name'),
+            customer_email=tripay_data.get('customer_email'),
+            customer_phone=tripay_data.get('customer_phone'),
+            amount=Decimal(str(tripay_data.get('amount'))),
+            amount_received=Decimal(str(tripay_data.get('amount_received'))),
+            checkout_url=tripay_data.get('checkout_url'),
+            status=tripay_data.get('status'), # e.g., "UNPAID"
+            expired_time=tripay_data.get('expired_time'),
+            qr_string=tripay_data.get('qr_string'),
+            qr_url=tripay_data.get('qr_url'),
+            # Get order item details from the original request's items
+            order_item_name=main_item.get('name', 'N/A'),
+            order_item_price=Decimal(str(main_item.get('price', 0))),
+            order_item_quantity=main_item.get('quantity', 0),
+            order_item_sku=main_item.get('sku')
+        )
+        db.add(new_transaction)
+        
+        # 2. Create the associated Payment record
+        new_payment = Payment(
+            id=str(uuid4()),
+            payment_method=tripay_data.get('payment_method'),
+            payment_status='pending', # Always 'pending' on creation
+            total_payment=Decimal(str(tripay_data.get('amount'))),
+            transaction_id=new_transaction.id # Link to the new transaction
+        )
+        db.add(new_payment)
+        
+        await db.commit()
+        logger.info(f"Successfully saved transaction {new_transaction.reference} to database.")
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to save transaction {tripay_data.get('reference')} to DB: {e}", exc_info=True)
+        # We log the error but don't raise an HTTPException here,
+        # because the main function should still return the Tripay response.
+        # The client needs the payment URL even if our DB save fails.
+        # You can add more robust error handling/retry logic here if needed.
+
+async def _update_transaction_status_in_db(db: AsyncSession, reference: str, new_status: str, amount_received: Decimal = None):
+    """
+    Updates the status of a transaction and its payment record in the database.
+    This is designed to be called by a webhook handler.
+    """
+    try:
+        result = await db.execute(
+            select(Transaction).options(joinedload(Transaction.payment)).filter_by(reference=reference)
+        )
+        transaction = result.scalars().first()
+
+        if not transaction:
+            logger.warning(f"Update failed: Transaction with reference {reference} not found.")
+            return
+
+        # Update transaction status
+        transaction.status = new_status
+        
+        # Determine payment status and update amount received
+        payment_status_map = {
+            "PAID": "completed",
+            "SETTLEMENT": "completed",
+            "EXPIRED": "failed",
+            "FAILED": "failed"
+        }
+        new_payment_status = payment_status_map.get(new_status, "pending")
+
+        if new_payment_status == 'completed' and amount_received is not None:
+            transaction.amount_received = amount_received
+
+        # Update related payment record
+        if transaction.payment:
+            transaction.payment.payment_status = new_payment_status
+        
+        await db.commit()
+        logger.info(f"Successfully updated transaction {reference} status to {new_status}.")
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to update transaction {reference} status in DB: {e}", exc_info=True)
