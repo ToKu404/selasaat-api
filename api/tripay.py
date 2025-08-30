@@ -7,6 +7,8 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends
 from api.photobox import _save_transaction_to_db
 from config.database import get_db
 from config.settings import settings # <-- Path import sudah benar
@@ -49,7 +51,7 @@ async def get_payment_channels():
 
 ### Endpoint 2: Membuat Transaksi Pembayaran
 @router.post("/tripay/create-transaction")
-async def create_transaction(transaction_data: CreateTransactionRequest):
+async def create_transaction(transaction_data: CreateTransactionRequest, db: AsyncSession = Depends(get_db)):
     merchant_ref = f"SELASAAT-{os.urandom(4).hex()}"
     signature_string = f"{settings.TRIPAY_MERCHANT_CODE}{merchant_ref}{transaction_data.amount}"
 
@@ -91,7 +93,7 @@ async def create_transaction(transaction_data: CreateTransactionRequest):
             if tripay_response_json.get('success'):
                 # ...save it to our own database in the background.
                 await _save_transaction_to_db(
-                    db=get_db(),
+                    db=db,
                     tripay_data=tripay_response_json.get('data', {}),
                     order_items=transaction_data.items
                 )
