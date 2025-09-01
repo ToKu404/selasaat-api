@@ -160,7 +160,7 @@
                         } else if (result.status === 'SUCCESS') {
                             clearInterval(intervalId);
                             // Arahkan ke halaman sukses
-                            window.location.href = `/static/voucher-success.html`;
+                            window.location.href = `/voucher/success`;
                         } else if (result.status === 'FAILED' || result.status === 'EXPIRED') {
                             clearInterval(intervalId);
                             paymentOverlay.style.display = 'none';

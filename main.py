@@ -4,7 +4,7 @@ import uvicorn
 import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Impor router dari kedua aplikasi
@@ -48,6 +48,21 @@ async def read_root():
 @app.get("/api/status")
 def get_status():
     return {"status": "ok", "app_name": "SELASAAT"}
+
+@app.get("/voucher", response_class=HTMLResponse)
+async def serve_voucher_page():
+    with open("static/voucher.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+@app.get("/voucher/success", response_class=HTMLResponse)
+async def serve_voucher_success_page():
+    with open("static/voucher-success.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+# ==========================================================
+
+# 3. Mount static files (tetap diperlukan untuk CSS, gambar, dll.)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Menjalankan server
 if __name__ == "__main__":
