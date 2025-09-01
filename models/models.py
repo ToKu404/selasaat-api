@@ -1,36 +1,26 @@
+# models.py
+
 from sqlalchemy import (
     Column, String, Enum as SAEnum, ForeignKey, DECIMAL, Text, Integer, 
-    LargeBinary, TIMESTAMP, func, DateTime, BigInteger
+    TIMESTAMP, func, BigInteger
 )
 from sqlalchemy.orm import relationship
 from config.database import Base
-from datetime import datetime
-from enum import Enum as PyEnum
-
-# Enum ini tidak digunakan di skema DB, tapi saya biarkan jika Anda memerlukannya di logika aplikasi
-class FilterType(str, PyEnum):
-    BLACK_AND_WHITE = "BLACK_AND_WHITE"
-    PURPLE = "PURPLE"
-    CYAN = "CYAN"
-    OLD_TIMES = "OLD_TIMES"
 
 # ==============================================================================
-# MODEL-MODEL TABEL
+# MODEL-MODEL TABEL BARU
 # ==============================================================================
 
 class Package(Base):
-    __tablename__ = "Package"
+    __tablename__ = "Packages"
 
     id = Column(String(36), primary_key=True)
     type = Column(String(255), nullable=False)
     price = Column(DECIMAL(10, 2), nullable=False)
-    # Diperbaiki: Sesuai skema, kolom ini tidak boleh null
-    services = Column(String(255), nullable=False)
-
-    sessions = relationship("PhotoSession", back_populates="package")
+    services = Column(Text, nullable=True) # Sesuai skema, ini TEXT dan boleh null
 
 class Frame(Base):
-    __tablename__ = "Frame"
+    __tablename__ = "Frames"
 
     id = Column(String(36), primary_key=True)
     name = Column(String(255), nullable=False)
@@ -40,97 +30,104 @@ class Frame(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
-    sessions = relationship("PhotoSession", back_populates="frame")
     positions = relationship("FramePosition", back_populates="frame", cascade="all, delete-orphan")
+    sessions = relationship("PhotoSession", back_populates="frame")
 
 class FramePosition(Base):
-    __tablename__ = "FramePosition"
+    __tablename__ = "FramePositions"
 
     id = Column(String(36), primary_key=True)
-    # Ditambahkan ondelete="CASCADE" untuk mencerminkan perilaku skema SQL
-    frame_id = Column(String(36), ForeignKey("Frame.id", ondelete="CASCADE"), nullable=False)
+    frame_id = Column(String(36), ForeignKey("Frames.id", ondelete="CASCADE"), nullable=False)
     x = Column(Integer, nullable=False, default=168)
     y = Column(Integer, nullable=False, default=680)
     width = Column(Integer, nullable=False, default=564)
     height = Column(Integer, nullable=False, default=439)
 
     frame = relationship("Frame", back_populates="positions")
+    captures = relationship("Capture", back_populates="frame_position")
 
 class Transaction(Base):
     __tablename__ = "Transactions"
 
     id = Column(String(36), primary_key=True)
     reference = Column(String(255), nullable=False, unique=True)
-    merchant_ref = Column(String(255), nullable=True)
-    payment_method = Column(String(100), nullable=False)
-    payment_name = Column(String(255), nullable=False)
+    merchant_ref = Column(String(255), nullable=False, unique=True)
+    transaction_type = Column(SAEnum('PHOTOSESSION', 'VOUCHER', name='transaction_type_enum'), nullable=False)
+    payment_method = Column(String(100), nullable=True)
+    payment_name = Column(String(255), nullable=True)
     customer_name = Column(String(255), nullable=False)
     customer_email = Column(String(255), nullable=False)
     customer_phone = Column(String(50), nullable=True)
     amount = Column(DECIMAL(15, 2), nullable=False)
-    amount_received = Column(DECIMAL(15, 2), nullable=False)
-    checkout_url = Column(Text, nullable=False)
-    status = Column(String(50), nullable=False)
-    expired_time = Column(BigInteger, nullable=False)
+    amount_received = Column(DECIMAL(15, 2), server_default='0.00')
+    checkout_url = Column(Text, nullable=True)
+    status = Column(SAEnum('PENDING', 'PAID', 'EXPIRED', 'FAILED', name='transaction_status_enum'), nullable=False, server_default='PENDING')
+    expired_time = Column(BigInteger, nullable=True)
     qr_string = Column(Text, nullable=True)
     qr_url = Column(Text, nullable=True)
-    
-    # Kolom Order Item
-    order_item_name = Column(String(255), nullable=False)
-    order_item_price = Column(DECIMAL(15, 2), nullable=False)
-    order_item_quantity = Column(Integer, nullable=False)
-    order_item_sku = Column(String(100), nullable=True)
-
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
-    # Relasi one-to-one ke Payment
-    payment = relationship("Payment", back_populates="transaction", uselist=False, cascade="all, delete-orphan")
+    # Relasi baru
+    order_items = relationship("OrderItem", back_populates="transaction", cascade="all, delete-orphan")
+    sessions = relationship("PhotoSession", back_populates="transaction")
+    vouchers = relationship("Voucher", back_populates="transaction")
 
-class Payment(Base):
-    __tablename__ = "Payments"
+class OrderItem(Base):
+    __tablename__ = "OrderItems"
 
     id = Column(String(36), primary_key=True)
-    payment_method = Column(String(50), nullable=False)
-    payment_status = Column(SAEnum("pending", "completed", "failed", name="payment_status_enum"), nullable=False)
-    total_payment = Column(DECIMAL(10, 2), nullable=False)
+    transaction_id = Column(String(36), ForeignKey("Transactions.id", ondelete="CASCADE"), nullable=False)
+    package_id = Column(String(36), ForeignKey("Packages.id", ondelete="RESTRICT"), nullable=False)
+    item_name = Column(String(255), nullable=False)
+    item_price = Column(DECIMAL(15, 2), nullable=False)
+    quantity = Column(Integer, nullable=False, default=1)
+    
+    transaction = relationship("Transaction", back_populates="order_items")
+    package = relationship("Package")
+
+class Voucher(Base):
+    __tablename__ = "Vouchers"
+    
+    id = Column(String(36), primary_key=True)
+    package_id = Column(String(36), ForeignKey("Packages.id", ondelete="CASCADE"), nullable=False)
+    transaction_id = Column(String(36), ForeignKey("Transactions.id", ondelete="RESTRICT"), nullable=False)
+    code = Column(String(255), unique=True, nullable=True)
+    recipient_email = Column(String(255), nullable=True)
+    status = Column(SAEnum('PENDING_PAYMENT', 'ACTIVE', 'USED', 'REVOKED', name='voucher_status_enum'), nullable=False, server_default='PENDING_PAYMENT')
     created_at = Column(TIMESTAMP, server_default=func.now())
-    
-    # Kunci Asing ke Transactions
-    transaction_id = Column(String(36), ForeignKey("Transactions.id", ondelete="SET NULL"), nullable=True)
-    
-    # Relasi back-reference ke Transaction
-    transaction = relationship("Transaction", back_populates="payment")
-    sessions = relationship("PhotoSession", back_populates="payment")
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    package = relationship("Package")
+    transaction = relationship("Transaction", back_populates="vouchers")
+
+# models.py (Bagian yang perlu diperbaiki)
 
 class PhotoSession(Base):
-    __tablename__ = "PhotoSession"
+    __tablename__ = "PhotoSessions"
 
-    session_id = Column(String(36), primary_key=True)
+    id = Column(String(36), primary_key=True)
+    transaction_id = Column(String(36), ForeignKey("Transactions.id", ondelete="CASCADE"), nullable=False)
+    frame_id = Column(String(36), ForeignKey("Frames.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(255), nullable=False)
-    email = Column(String(255), nullable=True)
-    result_image = Column(LargeBinary, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    recipient_email = Column(String(255), nullable=True)
+    image_filter = Column(String(255), nullable=True)
+    result_image_url = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
     
-    # Kunci Asing
-    payment_id = Column(String(36), ForeignKey("Payments.id", ondelete="SET NULL"), nullable=True)
-    frame_id = Column(String(36), ForeignKey("Frame.id", ondelete="SET NULL"), nullable=True)
-    package_id = Column(String(36), ForeignKey("Package.id", ondelete="SET NULL"), nullable=True)
-
-    # Relasi
-    payment = relationship("Payment", back_populates="sessions")
+    transaction = relationship("Transaction", back_populates="sessions")
     frame = relationship("Frame", back_populates="sessions")
-    package = relationship("Package", back_populates="sessions")
     captures = relationship("Capture", back_populates="session", cascade="all, delete-orphan")
 
 class Capture(Base):
     __tablename__ = "Captures"
 
-    capture_id = Column(String(36), primary_key=True)
-    image = Column(LargeBinary, nullable=False)
-    
-    # Kunci Asing ke PhotoSession
-    session_id = Column(String(36), ForeignKey("PhotoSession.session_id", ondelete="CASCADE"), nullable=False)
-    
-    # Relasi
+    id = Column(String(36), primary_key=True)
+    session_id = Column(String(36), ForeignKey("PhotoSessions.id", ondelete="CASCADE"), nullable=False)
+    normal_capture_url = Column(Text, nullable=False)
+    raw_capture_url = Column(Text, nullable=False)
+    frame_position_id = Column(String(36), ForeignKey("FramePositions.id", ondelete="SET NULL"), nullable=True)
+
     session = relationship("PhotoSession", back_populates="captures")
+    frame_position = relationship("FramePosition", back_populates="captures")

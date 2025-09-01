@@ -5,6 +5,7 @@ from sqlalchemy.pool import NullPool
 
 # Ganti dengan credential database Anda
 DATABASE_URL = "mysql+aiomysql://selasaat:s4n%402ooImysql@103.103.20.118:3306/selasaat"
+# DATABASE_URL = "mysql+aiomysql://root@localhost:3306/selasaat"
 
 # Engine untuk koneksi async
 engine = create_async_engine(

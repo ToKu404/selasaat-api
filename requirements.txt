@@ -18,3 +18,4 @@ opencv-python-headless
 # Konfigurasi
 python-dotenv
 cryptography
+boto3

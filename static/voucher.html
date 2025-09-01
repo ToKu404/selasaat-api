@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beli Voucher - SELASAAT Photobooth Co.</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .voucher-container { max-width: 600px; margin: 40px auto; }
+        .package-options .card { margin-bottom: 20px; cursor: pointer; transition: all 0.2s ease-out; }
+        .package-options .card.selected { border-color: var(--teal); box-shadow: 0 0 0 4px var(--teal); }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { font-weight: 700; display: block; margin-bottom: 8px; }
+        .form-group input { width: 100%; padding: 12px; border: var(--border-width) solid var(--black); font-size: 1rem; }
+        .loading-overlay, .payment-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(254, 253, 244, 0.8); z-index: 1000; display: none; align-items: center; justify-content: center; text-align: center; }
+        .loading-overlay p, .payment-overlay .card p { font-size: 1.2rem; }
+        .payment-overlay .card { max-width: 400px; }
+        #qr-code img { max-width: 100%; height: auto; border: var(--border-width) solid var(--black); margin-top: 20px;}
+    </style>
+</head>
+<body>
+    <header class="main-header"><div class="container logo">Beli Voucher SELASAAT</div></header>
+
+    <main>
+        <div class="container voucher-container">
+            <div id="form-section">
+                <div class="card">
+                    <h2 class="section-title" style="margin-bottom: 30px;">PILIH PAKET</h2>
+                    <div id="package-options" class="package-options">
+                        </div>
+
+                    <div class="form-group">
+                        <label for="email">Email Penerima Voucher</label>
+                        <input type="email" id="email" placeholder="contoh@email.com" required>
+                    </div>
+
+                    <button id="buy-button" class="btn" style="width: 100%;">BELI & BAYAR DENGAN QRIS</button>
+                </div>
+            </div>
+
+            <div id="error-message" class="card card--yellow" style="display: none; margin-top: 20px;"></div>
+        </div>
+
+        <div id="loading-overlay" class="loading-overlay"><p>Membuat transaksi, mohon tunggu...</p></div>
+        <div id="payment-overlay" class="payment-overlay">
+            <div class="card">
+                <h2 class="section-title">SELESAIKAN PEMBAYARAN</h2>
+                <p>Silakan pindai QR Code di bawah ini menggunakan aplikasi pembayaran Anda.</p>
+                <div id="qr-code"></div>
+                <p style="margin-top: 20px; font-size: 0.9rem;">Halaman ini akan otomatis beralih setelah pembayaran berhasil.</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const packageOptionsContainer = document.getElementById('package-options');
+            const emailInput = document.getElementById('email');
+            const buyButton = document.getElementById('buy-button');
+            const loadingOverlay = document.getElementById('loading-overlay');
+            const paymentOverlay = document.getElementById('payment-overlay');
+            const qrCodeContainer = document.getElementById('qr-code');
+            const errorMessageContainer = document.getElementById('error-message');
+
+            let selectedPackageId = null;
+
+            // 1. Ambil data paket dari API
+            try {
+                const response = await fetch('/api/packages');
+                const result = await response.json();
+                if (result.status === 'SUCCESS') {
+                    result.data.forEach(pkg => {
+                        const card = document.createElement('div');
+                        card.className = 'card';
+                        card.dataset.packageId = pkg.id;
+                        card.innerHTML = `
+                            <h3 style="font-family: var(--font-heading);">${pkg.type}</h3>
+                            <p><strong>Rp ${new Intl.NumberFormat('id-ID').format(pkg.price)}</strong></p>
+                            <p>${pkg.services}</p>
+                        `;
+                        card.addEventListener('click', () => {
+                            document.querySelectorAll('.package-options .card').forEach(c => c.classList.remove('selected'));
+                            card.classList.add('selected');
+                            selectedPackageId = pkg.id;
+                        });
+                        packageOptionsContainer.appendChild(card);
+                    });
+                } else {
+                    showError('Gagal memuat paket.');
+                }
+            } catch (error) {
+                showError('Terjadi kesalahan jaringan saat memuat paket.');
+            }
+
+            function showError(message) {
+                errorMessageContainer.textContent = message;
+                errorMessageContainer.style.display = 'block';
+            }
+
+            function hideError() {
+                errorMessageContainer.style.display = 'none';
+            }
+            
+            // 2. Klik tombol beli
+            buyButton.addEventListener('click', async () => {
+                hideError();
+                if (!selectedPackageId) {
+                    showError('Silakan pilih paket terlebih dahulu.');
+                    return;
+                }
+                if (!emailInput.value || !emailInput.validity.valid) {
+                    showError('Silakan masukkan alamat email yang valid.');
+                    return;
+                }
+
+                loadingOverlay.style.display = 'flex';
+
+                try {
+                    const response = await fetch('/api/vouchers/request', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            package_id: selectedPackageId,
+                            recipient_email: emailInput.value
+                        })
+                    });
+
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        const merchantRef = result.merchant_ref;
+                        // Simpan merchant_ref untuk halaman sukses
+                        localStorage.setItem('selasaat_merchant_ref', merchantRef);
+                        // Mulai polling untuk status pembayaran
+                        pollPaymentStatus(merchantRef);
+                    } else {
+                        showError(result.detail || 'Gagal membuat transaksi.');
+                        loadingOverlay.style.display = 'none';
+                    }
+
+                } catch (error) {
+                    showError('Terjadi kesalahan jaringan.');
+                    loadingOverlay.style.display = 'none';
+                }
+            });
+
+            // 3. Polling status pembayaran
+            async function pollPaymentStatus(merchantRef) {
+                const intervalId = setInterval(async () => {
+                    try {
+                        const response = await fetch(`/api/vouchers/status/${merchantRef}`);
+                        const result = await response.json();
+
+                        if (result.status === 'PENDING') {
+                            if (paymentOverlay.style.display !== 'flex') {
+                                loadingOverlay.style.display = 'none';
+                                paymentOverlay.style.display = 'flex';
+                                qrCodeContainer.innerHTML = `<img src="${result.checkout_url}" alt="QR Code Pembayaran">`;
+                            }
+                        } else if (result.status === 'SUCCESS') {
+                            clearInterval(intervalId);
+                            // Arahkan ke halaman sukses
+                            window.location.href = `/static/voucher-success.html`;
+                        } else if (result.status === 'FAILED' || result.status === 'EXPIRED') {
+                            clearInterval(intervalId);
+                            paymentOverlay.style.display = 'none';
+                            showError('Pembayaran gagal atau kadaluarsa. Silakan coba lagi.');
+                        }
+
+                    } catch (error) {
+                        console.error('Polling error:', error);
+                    }
+                }, 3000); // Polling setiap 3 detik
+            }
+        });
+    </script>
+</body>
+</html>

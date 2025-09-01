@@ -56,6 +56,16 @@ a:hover {
   color: var(--teal);
 }
 
+/* CSS untuk tombol di Hero Section */
+.hero-buttons {
+  margin-top: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px; /* Jarak antar tombol */
+  flex-wrap: wrap; /* Agar rapi di layar kecil */
+}
+
 /* Header */
 .main-header {
   background: var(--paper);

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voucher Berhasil! - SELASAAT Photobooth Co.</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .success-container { text-align: center; max-width: 500px; margin: 40px auto; }
+        .voucher-code {
+            font-family: monospace;
+            font-size: 2.5rem;
+            font-weight: 700;
+            padding: 20px;
+            border: 3px dashed var(--teal);
+            margin: 30px 0;
+            background: #f0fdfa;
+            color: var(--teal);
+            user-select: all;
+        }
+    </style>
+</head>
+<body>
+    <header class="main-header"><div class="container logo">Pembayaran Berhasil</div></header>
+
+    <main>
+        <div class="container success-container">
+            <div id="loading-section" class="card">
+                <p>Memverifikasi pembayaran dan mengambil kode voucher...</p>
+            </div>
+
+            <div id="success-section" class="card" style="display: none;">
+                <h2 class="section-title">VOUCHER ANDA</h2>
+                <p>Terima kasih! Voucher Anda sudah aktif dan telah dikirimkan ke email. Tunjukkan kode ini di outlet kami.</p>
+                
+                <div id="package-info"></div>
+                <div id="voucher-code" class="voucher-code"></div>
+                
+                <a href="/" class="btn">Kembali ke Beranda</a>
+            </div>
+
+             <div id="error-section" class="card card--yellow" style="display: none;">
+                <p>Gagal mengambil detail voucher. Mohon periksa email Anda atau hubungi kami.</p>
+             </div>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const loadingSection = document.getElementById('loading-section');
+            const successSection = document.getElementById('success-section');
+            const errorSection = document.getElementById('error-section');
+            const packageInfoContainer = document.getElementById('package-info');
+            const voucherCodeContainer = document.getElementById('voucher-code');
+
+            const merchantRef = localStorage.getItem('selasaat_merchant_ref');
+            
+            if (!merchantRef) {
+                loadingSection.style.display = 'none';
+                errorSection.style.display = 'block';
+                return;
+            }
+
+            try {
+                // Ambil status final untuk mendapatkan kode
+                const response = await fetch(`/api/vouchers/status/${merchantRef}`);
+                const result = await response.json();
+                
+                if (result.status === 'SUCCESS' && result.code) {
+                    packageInfoContainer.innerHTML = `<p><strong>Paket: ${result.package_type}</strong></p>`;
+                    voucherCodeContainer.textContent = result.code;
+                    
+                    loadingSection.style.display = 'none';
+                    successSection.style.display = 'block';
+                } else {
+                    throw new Error('Voucher tidak ditemukan atau belum aktif.');
+                }
+            } catch (error) {
+                console.error("Fetch success error:", error);
+                loadingSection.style.display = 'none';
+                errorSection.style.display = 'block';
+            } finally {
+                // Hapus ref dari local storage setelah digunakan
+                localStorage.removeItem('selasaat_merchant_ref');
+            }
+        });
+    </script>
+</body>
+</html>
