@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Impor router dari kedua aplikasi
-from api.tripay import router as tripay_router
+from api.payment import router as payment_router
 from api.voucher import router as voucher_router
 from api.photobox import photobox as photobox_router # Nama router-nya adalah 'photobox'
 
@@ -36,7 +36,7 @@ app.mount(f"/{UPLOAD_FOLDER}", StaticFiles(directory=UPLOAD_FOLDER), name="uploa
 
 
 # 3. Sertakan kedua router
-app.include_router(tripay_router, prefix="/api", tags=["Tripay Payments"])
+app.include_router(payment_router, prefix="/api", tags=["Payments"])
 app.include_router(photobox_router, prefix="/api", tags=["Photobox"]) # Menggunakan prefix /api yang sama
 app.include_router(voucher_router, prefix="/api", tags=["vouchers"]) 
 

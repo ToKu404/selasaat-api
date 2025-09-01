@@ -126,7 +126,7 @@ async def get_frames(response: Response, db: AsyncSession = Depends(get_db)):
 
         data = [
             {"id": frame.id, "name": frame.name, "imageLink": frame.image_link, "width": frame.width, "height": frame.height,
-             "positions": [{"x": pos.x, "y": pos.y, "width": pos.width, "height": pos.height} for pos in (frame.positions or [])],
+             "positions": [{"id": pos.id, "x": pos.x, "y": pos.y, "width": pos.width, "height": pos.height} for pos in (frame.positions or [])],
              "createdAt": frame.created_at, "updatedAt": frame.updated_at}
             for frame in frames
         ]
@@ -209,89 +209,87 @@ async def delete_frame(frame_id: str, db: AsyncSession = Depends(get_db)):
 
 # api/photobox.py
 
-@photobox.post("/captures")
-async def upload_captures(
-    files: List[UploadFile] = File(...),
-    session_id: str = Form(...), # <-- UBAH: Wajibkan session_id
-    db: AsyncSession = Depends(get_db) # <-- TAMBAHKAN: Tambahkan dependensi database
+# api/photobox.py
+
+@photobox.post("/captures", status_code=HTTPStatus.CREATED)
+async def upload_capture(
+    file: UploadFile = File(...),
+    session_id: str = Form(...),
+    frame_position_id: str = Form(...),
+    db: AsyncSession = Depends(get_db)
 ):
-    # 1. Validasi Session terlebih dahulu
-    result = await db.execute(select(PhotoSession).filter_by(id=session_id))
-    session = result.scalars().first()
-    if not session:
+    # 1. Validasi Session dan FramePosition
+    session_result = await db.execute(select(PhotoSession).filter_by(id=session_id))
+    if not session_result.scalars().first():
         raise HTTPException(status_code=404, detail="PhotoSession not found")
+
+    position_result = await db.execute(select(FramePosition).filter_by(id=frame_position_id))
+    position_data = position_result.scalars().first()
+    if not position_data:
+        raise HTTPException(status_code=404, detail="FramePosition not found")
+
+    # 2. Baca file dan siapkan untuk diunggah
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="File cannot be empty.")
 
     r2_client = get_r2_client()
     if not r2_client:
-        raise HTTPException(status_code=500, detail="Layanan penyimpanan R2 tidak tersedia.")
+        raise HTTPException(status_code=500, detail="R2 storage service is unavailable.")
 
-    db_captures_to_add = []
-    r2_keys_to_delete_on_fail = []
-
-    # 2. Loop dan Upload ke R2, sambil siapkan data untuk DB
-    for i, file in enumerate(files):
-        contents = await file.read()
-        if not contents:
-            continue
-
-        img = Image.open(BytesIO(contents)).convert("RGBA")
-        
-        # Buat key untuk original dan normal (thumbnail)
-        original_key = f"captures/{session_id}/{uuid4()}_original.png"
-        normal_key = f"captures/{session_id}/{uuid4()}_normal.png"
-        
-        # Siapkan untuk diunggah
+    img = Image.open(BytesIO(contents)).convert("RGBA")
+    
+    original_key = f"captures/{session_id}/{uuid4()}_original.png"
+    normal_key = f"captures/{session_id}/{uuid4()}_normal.png"
+    
+    # 3. Proses dan Unggah ke R2
+    try:
         original_buffer = BytesIO()
         img.save(original_buffer, format="PNG")
         original_buffer.seek(0)
+        r2_client.put_object(Bucket=R2_BUCKET_NAME, Key=original_key, Body=original_buffer, ContentType='image/png')
 
         normal_buffer = BytesIO()
-        # Ukuran thumbnail bisa disesuaikan, misalnya lebar 800px
-        thumbnail_size = (800, 800) 
+        thumbnail_size = (position_data.width, position_data.height)
+        
         normal_img = img.copy()
         normal_img.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
         normal_img.save(normal_buffer, format="PNG", optimize=True)
         normal_buffer.seek(0)
-        
-        # Unggah ke R2
-        r2_client.put_object(Bucket=R2_BUCKET_NAME, Key=original_key, Body=original_buffer, ContentType='image/png')
-        r2_keys_to_delete_on_fail.append(original_key) # Catat untuk rollback
-
         r2_client.put_object(Bucket=R2_BUCKET_NAME, Key=normal_key, Body=normal_buffer, ContentType='image/png')
-        r2_keys_to_delete_on_fail.append(normal_key) # Catat untuk rollback
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload to R2: {e}")
 
-        # Siapkan objek untuk disimpan ke database
-        new_capture = Capture(
-            id=str(uuid4()),
-            session_id=session_id,
-            raw_capture_url=f"{R2_PUBLIC_URL}/{original_key}",
-            normal_capture_url=f"{R2_PUBLIC_URL}/{normal_key}"
-        )
-        db_captures_to_add.append(new_capture)
-
-    # 3. Simpan semua data capture ke database dalam satu transaksi
-    if not db_captures_to_add:
-        raise HTTPException(status_code=400, detail="No valid files were uploaded.")
-
+    # 4. Simpan data capture ke database
+    new_capture = Capture(
+        id=str(uuid4()),
+        session_id=session_id,
+        raw_capture_url=f"{R2_PUBLIC_URL}/{original_key}",
+        normal_capture_url=f"{R2_PUBLIC_URL}/{normal_key}",
+        frame_position_id=frame_position_id
+    )
+    
     try:
-        db.add_all(db_captures_to_add)
+        db.add(new_capture)
         await db.commit()
     except Exception as e:
         await db.rollback()
-        # Rollback R2: Hapus file yang sudah terunggah jika DB gagal
-        logger.error(f"Database commit failed. Rolling back R2 uploads for session {session_id}")
-        for key in r2_keys_to_delete_on_fail:
-            try:
-                r2_client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
-            except Exception as delete_e:
-                logger.error(f"Failed to delete R2 object {key} during rollback: {delete_e}")
+        try:
+            r2_client.delete_object(Bucket=R2_BUCKET_NAME, Key=original_key)
+            r2_client.delete_object(Bucket=R2_BUCKET_NAME, Key=normal_key)
+        except Exception as delete_e:
+            logger.error(f"Failed to delete R2 objects during rollback: {delete_e}")
         raise HTTPException(status_code=500, detail=f"Gagal menyimpan data capture: {e}")
 
-    # 4. Berikan respons yang jelas
     return {
-        "status": "SUCCESS",
-        "message": f"{len(db_captures_to_add)} captures successfully saved to session {session_id}"
+        "original": new_capture.raw_capture_url,
+        "normal": new_capture.normal_capture_url,
+        "x": position_data.x,
+        "y": position_data.y,
+        "width": position_data.width,
+        "height": position_data.height,
     }
+
 @photobox.post("/compose")
 async def compose_high_res_photo(request: ComposeRequest):
     PRINT_DPI, FINAL_WIDTH_PX = 300, 4 * 300
@@ -358,8 +356,8 @@ async def set_frame(session_id: str, request: SetFrameRequest, db: AsyncSession 
 
 
 @photobox.post("/sessions")
-async def create_session(name: str = Form(...), transaction_id: str = Form(...), db: AsyncSession = Depends(get_db)):
-    if not name or not transaction_id:
+async def create_session(name: str = Form(...),session_id: str = Form(...), transaction_id: str = Form(...), db: AsyncSession = Depends(get_db)):
+    if not name or not transaction_id or not session_id: 
         raise HTTPException(status_code=400, detail="Name and Transaction ID are required")
     
     # Periksa apakah transaksi ada
@@ -368,7 +366,7 @@ async def create_session(name: str = Form(...), transaction_id: str = Form(...),
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     new_session = PhotoSession(
-        id=str(uuid4()), 
+        id=session_id, 
         name=name,
         transaction_id=transaction_id
     )
@@ -432,36 +430,42 @@ async def get_all_packages(response: Response, db: AsyncSession = Depends(get_db
 # DATABASE HELPER METHODS UNTUK TRANSAKSI (INTERNAL)
 # ==============================================================================
 
-async def _save_transaction_to_db(db: AsyncSession, tripay_data: dict, order_items: list, transaction_type: str):
-    """Menyimpan transaksi baru dan item-item terkaitnya ke database."""
+# api/photobox.py
+
+# Di dalam file: api/photobox.py
+
+async def _save_transaction_to_db(db: AsyncSession, tripay_data: dict, order_items: list, transaction_type: str) -> str:
+    """Menyimpan transaksi baru dan item-item terkaitnya ke database, lalu return transaction_id."""
     try:
-        # 1. Buat record Transaksi utama
         new_transaction = Transaction(
             id=str(uuid4()),
             reference=tripay_data.get('reference'),
             merchant_ref=tripay_data.get('merchant_ref'),
-            transaction_type=transaction_type, # Jenis transaksi dari parameter
+            transaction_type=transaction_type,
             payment_method=tripay_data.get('payment_method'),
             payment_name=tripay_data.get('payment_name'),
             customer_name=tripay_data.get('customer_name'),
             customer_email=tripay_data.get('customer_email'),
             customer_phone=tripay_data.get('customer_phone'),
             amount=Decimal(str(tripay_data.get('amount'))),
-            status='PENDING', # Status awal selalu PENDING
+            
+            # === PERBAIKAN DI SINI ===
+            status='PENDING', # Diubah dari 'UNPAID' menjadi 'PENDING'
+            # =========================
+
             expired_time=tripay_data.get('expired_time'),
             checkout_url=tripay_data.get('checkout_url'),
             qr_string=tripay_data.get('qr_string'),
             qr_url=tripay_data.get('qr_url')
         )
         db.add(new_transaction)
-        await db.flush() # Flush untuk mendapatkan ID transaksi
+        await db.flush()
 
-        # 2. Buat record OrderItems untuk setiap item dalam pesanan
         for item in order_items:
-            # Asumsi 'sku' dari Tripay adalah 'package_id' kita
-            package_id = item.get('sku')
+            package_id = item.get('id')
+            
             if not package_id:
-                raise ValueError("SKU (package_id) tidak ada di order item.")
+                raise ValueError("ID Paket tidak ditemukan di dalam item pesanan.")
 
             new_order_item = OrderItem(
                 id=str(uuid4()),
@@ -472,30 +476,25 @@ async def _save_transaction_to_db(db: AsyncSession, tripay_data: dict, order_ite
                 quantity=item.get('quantity')
             )
             db.add(new_order_item)
-            
-        # 3. Jika ini adalah transaksi VOUCHER, buat placeholder vouchernya
+
         if transaction_type == 'VOUCHER':
-            # Asumsi satu voucher per transaksi untuk saat ini
             main_item = order_items[0]
             new_voucher = Voucher(
                 id=str(uuid4()),
-                package_id=main_item.get('sku'),
+                package_id=main_item.get('id'),
                 transaction_id=new_transaction.id,
                 recipient_email=tripay_data.get('customer_email'),
-                status='PENDING_PAYMENT' # Status awal
+                status='PENDING_PAYMENT'
             )
             db.add(new_voucher)
 
         await db.commit()
-        logger.info(f"Berhasil menyimpan transaksi {new_transaction.reference} ke database.")
-        
+        logger.info(f"Berhasil menyimpan transaksi {new_transaction.merchant_ref} ke database.")
+        return new_transaction.id
     except Exception as e:
         await db.rollback()
-        logger.error(f"Gagal menyimpan transaksi {tripay_data.get('reference')} ke DB: {e}", exc_info=True)
-        # Re-raise agar endpoint pemanggil tahu ada error
+        logger.error(f"Gagal menyimpan transaksi {tripay_data.get('merchant_ref')} ke DB: {e}", exc_info=True)
         raise e
-
-
 async def _update_transaction_status_in_db(db: AsyncSession, reference: str, new_status: str, amount_received: Decimal = None):
     """Mengupdate status transaksi dan menjalankan logika pasca-pembayaran (webhook)."""
     try:
@@ -541,3 +540,26 @@ async def _update_transaction_status_in_db(db: AsyncSession, reference: str, new
     except Exception as e:
         await db.rollback()
         logger.error(f"Gagal mengupdate transaksi {reference} di DB: {e}", exc_info=True)
+
+
+async def _get_transaction_by_order_id(db: AsyncSession, order_id: str) -> Transaction | None:
+    """
+    Mengambil data transaksi dari database berdasarkan order_id dari Midtrans,
+    yang disimpan di kolom 'merchant_ref'.
+    """
+    try:
+        # Membuat query untuk memilih transaksi
+        query = select(Transaction).where(Transaction.merchant_ref == order_id)
+        
+        # Menjalankan query secara asynchronous
+        result = await db.execute(query)
+        
+        # Mengambil satu hasil atau None jika tidak ditemukan
+        transaction = result.scalars().first()
+        
+        return transaction
+    except Exception as e:
+        # Jika terjadi error pada database, log error tersebut (opsional)
+        # dan kembalikan None agar tidak menghentikan aplikasi.
+        print(f"Database error while fetching transaction by order_id: {e}")
+        return None

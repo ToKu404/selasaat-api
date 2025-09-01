@@ -114,8 +114,7 @@ class PhotoSession(Base):
     image_filter = Column(String(255), nullable=True)
     result_image_url = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
-    
+
     transaction = relationship("Transaction", back_populates="sessions")
     frame = relationship("Frame", back_populates="sessions")
     captures = relationship("Capture", back_populates="session", cascade="all, delete-orphan")
