@@ -14,6 +14,7 @@ from PIL import Image, ImageOps
 from decimal import Decimal
 from http import HTTPStatus
 
+
 # --- Analisis Gambar ---
 import cv2
 import numpy as np
@@ -495,6 +496,87 @@ async def _save_transaction_to_db(db: AsyncSession, tripay_data: dict, order_ite
         await db.rollback()
         logger.error(f"Gagal menyimpan transaksi {tripay_data.get('merchant_ref')} ke DB: {e}", exc_info=True)
         raise e
+    
+
+# Di bagian paling atas file api/photobox.py, tambahkan import ini
+
+# Di bagian Pydantic Models, tambahkan model request ini
+# ... (import-import lainnya di bagian atas) ...
+# --- SQLAlchemy & Database Imports ---
+# ... (import-import lainnya) ...
+
+# 1. HAPUS BARIS INI DARI BAGIAN ATAS FILE
+# from api.payment import midtrans_service  <-- HAPUS INI
+
+# ... (kode lainnya) ...
+
+# Di bagian Pydantic Models, tambahkan model request ini
+class CreatePhotosessionTransactionRequest(BaseModel):
+    package_id: str
+    customer_name: str
+    customer_email: str
+
+# Di bagian paling bawah file, ubah endpoint ini
+@photobox.post("/transactions/request-photosession")
+async def request_photosession_transaction(request: CreatePhotosessionTransactionRequest, db: AsyncSession = Depends(get_db)):
+    """Membuat transaksi Midtrans QRIS khusus untuk Photo Session."""
+
+    # 2. TAMBAHKAN BARIS IMPOR DI DALAM FUNGSI INI
+    from api.payment import midtrans_service
+
+    package_result = await db.execute(select(Package).filter_by(id=request.package_id))
+    package = package_result.scalars().first()
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    order_id = f"SESI-{os.urandom(4).hex().upper()}"
+    payload = {
+        "transaction_details": {
+            "order_id": order_id,
+            "gross_amount": int(package.price)
+        }
+    }
+
+    try:
+        midtrans_response = await midtrans_service.create_qris_transaction(payload)
+        
+        qr_string = midtrans_response.get('qr_string')
+        qr_url = next((a['url'] for a in midtrans_response.get('actions', []) if a['name'] == 'generate-qr-code'), None)
+
+        db_transaction_data = {
+            "merchant_ref": order_id,
+            "reference": midtrans_response.get("transaction_id"),
+            "amount": int(package.price),
+            "status": "PENDING",
+            "customer_email": request.customer_email,
+            "customer_name": request.customer_name,
+            "payment_method": "qris", "payment_name": "QRIS",
+            "qr_string": qr_string, "qr_url": qr_url
+        }
+        
+        order_items = [{
+            "id": package.id, "price": int(package.price), "quantity": 1,
+            "name": f"Photo Session - {package.type}"
+        }]
+        
+        transaction_id = await _save_transaction_to_db(
+            db=db,
+            tripay_data=db_transaction_data,
+            order_items=order_items,
+            transaction_type='PHOTOSESSION'
+        )
+
+        return {
+            "data": {
+                "order_id": order_id,
+            "qr_string": qr_string,
+            "qr_url": qr_url,
+            "transaction_id": transaction_id,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error requesting photosession transaction: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 async def _update_transaction_status_in_db(db: AsyncSession, reference: str, new_status: str, amount_received: Decimal = None):
     """Mengupdate status transaksi dan menjalankan logika pasca-pembayaran (webhook)."""
     try:
